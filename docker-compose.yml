@@ -1,0 +1,92 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7.2
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: mariadb:10.6
+    restart: always
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  init:
+    build:
+      context: .
+      dockerfile: Dockerfile.init
+    restart: no
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_USER: app
+      DATABASE_PASSWORD: app
+      DATABASE_NAME: app
+      DATABASE_HOST: db
+      DATABASE_PORT: 3306
+    command:
+      [
+        './wait-for-it.sh',
+        'db:3306',
+        '--strict',
+        '--timeout=300',
+        '--',
+        'npm',
+        'run',
+        'db:migration:migrate',
+      ]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      DATABASE_USER: app
+      DATABASE_PASSWORD: app
+      DATABASE_NAME: app
+      DATABASE_HOST: db
+      DATABASE_PORT: 3306
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
+  redis_data:

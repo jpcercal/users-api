@@ -1,0 +1,107 @@
+name: users-api
+
+on: [push]
+
+jobs:
+  security-checker:
+    name: security-checker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: |
+          docker build -t ${{ github.sha }} .
+
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  static-code-analysis:
+    name: static-code-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - run: |
+          npm install
+
+      - run: |
+          npm run lint:check
+
+      - run: |
+          npm run prettier:check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - run: |
+          npm install
+
+      - run: |
+          npm run test
+
+      - uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: true
+
+  performance-test:
+    name: performance-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: |
+          docker compose up -d
+
+      - run: |
+          sudo apt update
+          sudo apt install -y apache2-utils jq curl
+
+      - run: |
+          chmod +x wait-for-it.sh
+          ./wait-for-it.sh localhost:3000 --timeout=60 --strict -- echo "users-api is up"
+
+      - run: |
+          curl --silent --request GET --url http://localhost:3000/users | jq '.data | length' | egrep '^0$'
+
+      - run: |
+          for i in {1..100}; do
+          curl --request POST \
+            --url http://localhost:3000/users \
+            --header 'Content-Type: application/json' \
+            --data "{ \"email\": \"user${i}@example.com\", \"name\": \"User ${i}\" }"
+          done
+
+      - run: |
+          ab -n 1000 -c 50 http://localhost:3000/users
+
+      - run: |
+          curl --silent --request GET --url http://localhost:3000/users | jq '.data | length' | egrep '^100$'

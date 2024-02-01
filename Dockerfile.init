@@ -1,0 +1,25 @@
+# TODO: improve it, consider using the same image
+FROM node:18 AS builder 
+
+# Set working directory
+WORKDIR /usr/src/app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Build production release
+RUN npm run build:release
+
+# Install production dependencies
+RUN rm -Rf node_modules && npm install --production --ignore-scripts
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PATH=/usr/src/app/node_modules/.bin:$PATH
+
+# Add wait-for-it
+RUN chmod +x wait-for-it.sh
